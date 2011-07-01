@@ -1,9 +1,7 @@
 #
-# adapted from getFactual by Mike Borozdin
-# @mikebz
+# some code forked from getFactual by Mike Borozdin
+# https://github.com/mikebz/FactualShell
 #
-# please keep the author's name in the code file if you are using
-# this IP
 # 
 import json
 from httplib import HTTPConnection
