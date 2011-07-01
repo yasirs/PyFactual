@@ -1,5 +1,5 @@
 #
-# written by Mike Borozdin
+# adapted from getFactual by Mike Borozdin
 # @mikebz
 #
 # please keep the author's name in the code file if you are using
@@ -10,15 +10,43 @@ from httplib import HTTPConnection
 from pprint import pprint
 import sys
 import string
+import urllib
 from array import array
 from django.utils.encoding import smart_str, smart_unicode
 
-api_key = "get this from factual.com"
+try:
+	api_key = open('api.key').read().rstrip()
+except:
+	raise IOError, "need api.key file with factual.com api key"
 
-'''
-get the table data
-'''
+
+def add_table_row(table, row_dict):
+
+	conn = HTTPConnection("api.factual.com")
+	query = "/v2/tables/" + table + "/input?"
+	valstr = "{"
+	for k,v in row_dict.iteritems():
+		if k!= 'subject_key': # subject key should not be given
+			valstr += "\""+str(k)+"\":\""+str(v)+"\","
+	valstr = valstr[:-1] + "}"
+	valstr=urllib.quote(valstr)
+	query += "values="+valstr
+	conn.request("GET", query + "&api_key=" + api_key)
+	resp = conn.getresponse()
+	status = resp.status
+	if status == 200 or status == 304:
+		return json.loads(resp.read())
+	else:
+		raise IOError, "Couldn't write to table %s, Error status code: %i" %(table,status)
+		return json.loads(resp.read())
+	
+	
+
 def get_table_data(table, search = ""):
+	"""
+	get_table_data(table, search = "") returns a table
+	"""
+	
 	url = "http://api.factual.com"
 	conn = HTTPConnection("api.factual.com")
 	
@@ -31,12 +59,10 @@ def get_table_data(table, search = ""):
 	resp = conn.getresponse()
 	status = resp.status
 	if status == 200 or status == 304:
-		return resp.read()
-		print result
+		return json.loads(resp.read())
 	else:
-		print 'Error status code: ', status
-		
-	return "";
+		raise IOError, "Couldn't read table %s, Error status code: %i" %(table,status)
+		return json.loads(resp.read())
 	
 def get_table_schema(table):
 	url = "http://api.factual.com"
@@ -45,75 +71,38 @@ def get_table_schema(table):
 	resp = conn.getresponse()
 	status = resp.status
 	if status == 200 or status == 304:
-		return resp.read()
-		print result
+		return json.loads(resp.read())
 	else:
-		print 'Error status code: ', status
+		raise IOError, "Couldn't read table %s schema, Error status code: %i" %(table,status)
 		
-	return "";	
+	return {}
 
-def print_table(data, row_ids = [] ):
+def print_table(data, col_ids = [] ):
+	""" print all the data returned by get_table_data(table) or specific columns
+
+	"""
 	
-	#DEBUG
-	#print 'in print_table'
-	#pprint(row_ids)
 
 	for row in data['response']['data']:
 		
-		for i in range( min(len(row), len(row_ids))):
+		for i in range( len(row) if col_ids==[] else min(len(row), len(col_ids))):
 			sys.stdout.write('-------------------------------')
-		print ""
+		sys.stdout.write("\n")
 		
-		for i in range(1, len(row) ): #there is a weird additional row
+		for i in range(1, len(row) ): #don't print the subject key
 			cell = row[i]
 			
- 			# handle the case when only certain row ids
+ 			# handle the case when only certain col ids
  			# were selected
- 			# NOTE: adjusting for some additional row here.
- 			if( len(row_ids) == 0 or (i-1) in row_ids):
+ 			# NOTE: adjusting for subject id
+ 			if( len(col_ids) == 0 or (i-1) in col_ids):
 	 			value = smart_str(cell)
  				if( len(value) > 30):
  					value = value[:26] + '...'
- 				
  				sys.stdout.write( "|{0:29}".format(value))
- 			# else:
- 				# DEBUG
- 				# sys.stdout.write( "|{0:30}".format('skipped cell'))
- 		print "|"
+		sys.stdout.write("|\n")
  		
-def print_table_list(data):
-	for row in data['response']['data']:
- 		print row[2]
  		
-def handle_describe(x):
-	tokens = x.split()
-	if len( tokens ) < 2: 
-		print 'you need to provide a table name'
-		return
-		
-	result = get_table_data("hPMZ80", tokens[1])
-	data = json.loads(result)
-	if ( len(data['response']['data']) < 1 ):
- 		print 'No table that matches your query'
- 	else:
- 		print 'Loading table data for: ' + tokens[1]
- 		table_id = data['response']['data'][0][7]
- 		result = get_table_schema(table_id)
- 		schema_data = json.loads(result)
- 		for field in schema_data['schema']['fields']:
- 			print '.' + field['name'] + ' : ' + field['datatype']
- 		#pprint(schema_data)
- 		
-def table_id_lookup(table_name):
-	result = get_table_data("hPMZ80", table_name)
-	data = json.loads(result)
-	if ( len(data['response']['data']) < 1 ):
- 		print 'No table that matches your query'
- 		return ""
- 	else:
- 		table_id = data['response']['data'][0][7]
- 		return table_id;
-
 '''
 this function will take a table and fields and return the columns for those ids
 '''
@@ -147,81 +136,3 @@ def table_row_lookup(table_id, fields):
  	
  	return columns
  		
-def handle_select(x):
-	tokens = []
-	
-	# a little weird tokenizing to get rid of the separators
-	for tok1 in x.split():
-		for tok2 in tok1.split(','):
-			tokens.append(tok2)
-	
-	#first ensure it looks like a real select
-	if( tokens[0] != 'select'):
-		print 'improper syntax: select statement is not starting with \"select...\"'
-		return
-	if not 'from' in tokens:
-		print 'select statement needs to end with "from <table_name>"'
-		return
-	if tokens.index('from') == len(tokens) - 1:
-		print 'select statement needs to end with "from <table_name>"'
-		return
-	if tokens.index('from') == 1:
-		print 'please provide some fields to select or use "*"'
-		return
-	
-	
-	# lot's of assumptions here, but this is a hackathon after all
-	table_name = tokens[len(tokens) - 1]
-	fields = tokens[1 : -2]
-	
-	table_id = table_id_lookup( table_name )
-	result = get_table_data( table_id )
-	data = json.loads(result)
-	
-	# if there is a star we will just dump it all out.
-	if( '*' in fields ):
- 		print_table(data)
- 		return
- 	else:
- 		row_ids = table_row_lookup(table_id, fields)
- 		print_table(data, row_ids)
-
-def print_help():
-	print "Help is on the way!"
-	print "Current commands: test, help, quit, tables, describe, select"
-	
-
-'''
-The main function that parses user input
-'''
-if __name__ == "__main__":
-	x = ""
- 	while x != 'quit' and x != 'exit' and x != 'q':
-		x = raw_input('factual command> ')
-		x = x.lower().strip()
-		
-		if x == "test":
-			result = get_table_data("GxpamT")
- 			data = json.loads(result)
- 			print_table(data)
- 		
- 		elif x == 'tables':
- 			result = get_table_data("hPMZ80")
- 			data = json.loads(result)
- 			print_table_list(data)
- 			
- 		elif x.startswith('describe'):
- 			handle_describe(x)
- 			
- 		elif x.startswith('select'):
- 			handle_select(x)
- 			
- 		# all the quitting functions	
-		elif x == "quit":
-			print "exiting..."
-		elif x == "q":
-			print "exiting..."
-		elif x == "exit":
-			print "exiting..."
-		else:
-			print 'does not compute. type help or quit'
