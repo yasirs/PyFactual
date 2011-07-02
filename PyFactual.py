@@ -17,8 +17,29 @@ try:
 except:
 	raise IOError, "need api.key file with factual.com api key"
 
+def rate_row(table,subject_key,rating):
+	""" rates a row of a table """
+	if type(rating) is not str:
+		rate = str(rating)
+	else:
+		rate = rating
+	return PyFactual.APImethod(table,"rate",["subject_key",'rating'],[sabject_key,rate])
 
-def add_table_row(table, row_dict):
+def API_method(table, method, parameters, values):
+	""" call a general API method, make sure that the values are url-encoded"""
+	conn = HTTPConnection("api.factual.com")
+	query = "/v2/tables/" + table + "/"+method+"?"
+	query += "&".join(map(lambda (k,v) : k+"="+v,zip(parameters,values)))
+	conn.request("GET", query + "&api_key=" + api_key)
+	resp = conn.getresponse()
+	status = resp.status
+	return resp.read()
+	
+	
+	
+
+
+def add_table_row(table, row_dict, skey = None):
 
 	conn = HTTPConnection("api.factual.com")
 	query = "/v2/tables/" + table + "/input?"
@@ -26,8 +47,12 @@ def add_table_row(table, row_dict):
 	for k,v in row_dict.iteritems():
 		if k!= 'subject_key': # subject key should not be given
 			valstr += "\""+str(k)+"\":\""+str(v)+"\","
+		else:
+			skey = v
 	valstr = valstr[:-1] + "}"
 	valstr=urllib.quote(valstr)
+	if skey is not None:
+		query += "subject_key="+skey+"&"
 	query += "values="+valstr
 	conn.request("GET", query + "&api_key=" + api_key)
 	resp = conn.getresponse()
@@ -45,7 +70,6 @@ def get_table_data(table, search = ""):
 	get_table_data(table, search = "") returns a table
 	"""
 	
-	url = "http://api.factual.com"
 	conn = HTTPConnection("api.factual.com")
 	
 	query = "/v2/tables/" + table + "/read?"
@@ -63,7 +87,6 @@ def get_table_data(table, search = ""):
 		return json.loads(resp.read())
 	
 def get_table_schema(table):
-	url = "http://api.factual.com"
 	conn = HTTPConnection("api.factual.com")
 	conn.request("GET", "/v2/tables/" + table + "/schema?api_key=" + api_key)
 	resp = conn.getresponse()
@@ -111,8 +134,7 @@ def table_row_lookup(table_id, fields):
 	#pprint(fields)
 	
 	columns = []; #create an empty collection to append
-	result = get_table_schema(table_id) #this returns a schema part of which is fields
- 	schema_data = json.loads(result)
+	schema_data = get_table_schema(table_id) #this returns a schema part of which is fields
  	
  	i = 0
  	#
